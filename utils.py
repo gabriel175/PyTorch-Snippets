@@ -11,6 +11,10 @@ import torch.autograd as autograd
 import os
 import shutil
 import numpy as np
+from scipy.io.wavfile import read
+import numpy as np
+import random
+from scipy import signal
 
 
 ### DATASETS ###
@@ -21,7 +25,8 @@ class FullTrainingDataset(torch.utils.data.Dataset):
         self.full_ds = full_ds
         self.offset = offset
         self.length = length
-        assert len(full_ds) >= offset + length, Exception("Parent Dataset not long enough")
+        assert len(full_ds) >= offset + \
+            length, Exception("Parent Dataset not long enough")
         super(FullTrainingDataset, self).__init__()
 
     def __len__(self):
@@ -39,8 +44,8 @@ def trainTestSplit(dataset, val_share=0.1, test_share=0.15):
     val_len = len(dataset) - val_offset - test_len
     assert train_len + test_len + val_len == len(dataset)
     return FullTrainingDataset(dataset, 0, val_offset), \
-           FullTrainingDataset(dataset, val_offset, val_len), \
-           FullTrainingDataset(dataset, test_offset, test_len)
+        FullTrainingDataset(dataset, val_offset, val_len), \
+        FullTrainingDataset(dataset, test_offset, test_len)
 
 
 def pad_tensor(vec, pad, dim):
@@ -126,11 +131,11 @@ class DimZeroPad(object):
     def __call__(self, vec):
         assert (vec.dim() - 1) >= self.dim, "Padded dim doesn't exist!"
         return pad_tensor(vec, self.padding, self.dim)
-    
-    
+
+
 ### AUDIO TRANSFORMATIONS ###
-    
-    
+
+
 class PathToWav(object):
     """ Transform a path to a wav file into a 1d numpy array """
 
@@ -160,7 +165,6 @@ class RandomWhiteNoise(ProbabilityTransform):
     def __init__(self, noise_strength=0.005, p=0.0):
         self.noise_strength = noise_strength
         super(RandomWhiteNoise, self).__init__(p)
-
 
     def transform(self, (sig, sr)):
         wn = np.random.randn(len(sig))
@@ -198,8 +202,8 @@ def save_checkpoint(state, is_best, is_error=False, filename='models/checkpoint'
         with open('models/model_best_summary.txt', 'wb') as f:
             f.write(state['summary'])
     print('==> saved {}'.format('(*)' if is_best else ''))
-    
-    
+
+
 ### MODEL SAVING/LOADING ####
 
 
@@ -221,8 +225,8 @@ def load_checkpoint(model, optimizer, path):
         return start_epoch, best_loss
     else:
         print("==> no checkpoint found at '{}'".format(path))
-        
-        
+
+
 ### RNN ###
 
 
@@ -231,12 +235,14 @@ def sort_and_pack(tensor, lengths):
     sorted_len, sorted_idx = seq_lengths.sort(0, descending=True)
     index_sorted_idx = sorted_idx.view(-1, 1, 1).expand_as(tensor)
     sorted_inputs = tensor.gather(0, index_sorted_idx.long())
-    packed_seq = torch.nn.utils.rnn.pack_padded_sequence(sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
+    packed_seq = torch.nn.utils.rnn.pack_padded_sequence(
+        sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
     return packed_seq, sorted_idx
 
 
 def unpack_and_unsort(packed, sorted_idx):
-    unpacked, unpacked_len = torch.nn.utils.rnn.pad_packed_sequence(packed, batch_first=True)
+    unpacked, unpacked_len = torch.nn.utils.rnn.pad_packed_sequence(
+        packed, batch_first=True)
     # unsort the output
     _, original_idx = sorted_idx.sort(0, descending=False)
     unsorted_idx = original_idx.view(-1, 1, 1).expand_as(unpacked)
@@ -280,13 +286,13 @@ class ConvBlock(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
-    
-    
+
+
 class CollapseConvSeq(nn.Module):
     """
     gets an output of a convolution (batch_size x out_channel x seq_len x feat)
     and outputs it to a (batch_size x seq_len x (feat * out_channel))
-    
+
     it preserves the length of the sequences, just increases the amount of features
     """
 
